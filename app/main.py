@@ -1,5 +1,6 @@
 import streamlit as st
 from datetime import datetime
+from inference import get_response
 
 # Page Configurations
 st.set_page_config(page_title="MediAssist", page_icon="💊", layout="centered")
@@ -69,6 +70,17 @@ st.markdown(
         transform: translateY(-2px);
         color: white;
     }
+
+    /* Role Toggle Style */
+    .role-toggle {
+        text-align: center;
+        padding: 10px;
+        margin-bottom: 20px;
+    }
+    .stRadio > label {
+        font-weight: bold;
+        color: #ff6f61;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -78,26 +90,41 @@ st.markdown(
 st.markdown('<div class="title">⚕️ MediAssist</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle">Your Personal Medical Companion</div>', unsafe_allow_html=True)
 
-# Define function to get a hardcoded response (simulate bot's response)
-def get_response(user_input):
-    # Static response for testing
-    return "I'm here to assist you. How can I help?"
+# Initialize session state for role if not exists
+if "user_role" not in st.session_state:
+    st.session_state["user_role"] = "Patient"
+
+# Role toggle using radio buttons
+user_role = st.radio("🧑‍⚕️ Select your role:", ("🧑‍🦽 Patient", "👩‍⚕️ Doctor"))
+
+# Update session state when role changes
+if user_role != st.session_state["user_role"]:
+    st.session_state["user_role"] = user_role
+    if "conversation_history" in st.session_state:
+        st.session_state["conversation_history"] = []  # Clear conversation on role switch
 
 # Initialize session state to hold the conversation history
 if "conversation_history" not in st.session_state:
     st.session_state["conversation_history"] = []
 
 # Input for user to enter their message
-user_input = st.text_input("You:", placeholder="Type your message here...", key="input_text")
+user_input = st.text_input(f"You ({st.session_state['user_role']}):", placeholder="Type your message here...", key="input_text")
 
 # Display conversation when user submits a message
 if st.button("Send") and user_input:
-    # Get bot's response
-    bot_response = get_response(user_input)
+    # Get bot's response based on role
+    bot_response = get_response(user_input, st.session_state["user_role"])
     
     # Append user input and bot response to the conversation history
-    st.session_state["conversation_history"].append({"role": "user", "message": user_input})
-    st.session_state["conversation_history"].append({"role": "assistant", "message": bot_response})
+    st.session_state["conversation_history"].append({
+        "role": "user", 
+        "message": user_input,
+        "user_role": st.session_state["user_role"]
+    })
+    st.session_state["conversation_history"].append({
+        "role": "assistant", 
+        "message": bot_response
+    })
 
     # Clear input box after sending
     user_input = ""
@@ -105,7 +132,7 @@ if st.button("Send") and user_input:
 # Display conversation history with enhanced styling
 for entry in st.session_state["conversation_history"]:
     if entry["role"] == "user":
-        st.markdown(f'<div class="user-message">{entry["message"]}</div>', unsafe_allow_html=True)
+        role_label = f"({entry['user_role']})"
+        st.markdown(f'<div class="user-message">{entry["message"]} <small>{role_label}</small></div>', unsafe_allow_html=True)
     else:
         st.markdown(f'<div class="bot-message">{entry["message"]}</div>', unsafe_allow_html=True)
-

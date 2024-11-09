@@ -1,0 +1,9 @@
+pandas
+scikit-learn
+jupyterlab
+torch
+torchvision
+matplotlib
+lightning
+tensorboard
+poetry

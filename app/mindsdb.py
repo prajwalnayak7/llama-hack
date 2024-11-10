@@ -1,157 +1,274 @@
 import mindsdb_sdk
 import pandas as pd
-import glob
-import os
-from typing import Optional, List, Dict
-import logging
 from pathlib import Path
 import PyPDF2
-import io
-import sys
+import logging
+from typing import Optional, List, Dict, Union, Any
+from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from enum import Enum, auto
 
-# Set up logging with more detailed format
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('knowledge_base_loader.log')
+    ]
 )
 logger = logging.getLogger(__name__)
 
-class KnowledgeBaseLoader:
-    def __init__(self, host: str = 'http://127.0.0.1:47334'):
-        """Initialize the Knowledge Base Loader."""
-        try:
-            self.server = mindsdb_sdk.connect(host)
-            logger.info(f"Successfully connected to MindsDB at {host}")
-        except Exception as e:
-            logger.error(f"Failed to connect to MindsDB: {str(e)}")
-            raise
+class ModelType(Enum):
+    """Supported model types"""
+    OPENAI = auto()
+    ANTHROPIC = auto()
+    LLAMA = auto()
+    CUSTOM = auto()
 
-    def extract_text_from_pdf(self, file_path: str) -> Optional[str]:
+@dataclass
+class ModelConfig:
+    """Configuration for model creation"""
+    model_type: ModelType
+    model_name: str
+    parameters: Dict[str, Any]
+
+@dataclass
+class AgentConfig:
+    """Configuration for agent creation"""
+    agent_name: str
+    model_name: str
+    description: str
+    skills: List[Dict[str, Any]]
+
+@dataclass
+class ProcessingResult:
+    """Data class to store file processing results"""
+    success: bool
+    file_path: str
+    error: Optional[str] = None
+    content: Optional[str] = None
+
+# ... [Previous MindsDBConnection class remains the same] ...
+
+class ModelManager:
+    """Manage MindsDB models"""
+    def __init__(self, connection: MindsDBConnection):
+        self.connection = connection
+
+    def create_model(self, config: ModelConfig) -> Optional[Any]:
         """
-        Extract text content from a PDF file with enhanced error handling.
+        Create a new model with specified configuration
+        
+        Args:
+            config: ModelConfig object containing model specifications
+            
+        Returns:
+            Created model object or None if creation fails
         """
         try:
-            with open(file_path, 'rb') as file:
-                # Create PDF reader object
-                pdf_reader = PyPDF2.PdfReader(file, strict=False)
-                
-                # Initialize text container
-                text_content = []
-                
-                # Process each page
-                for page_num in range(len(pdf_reader.pages)):
-                    try:
-                        page = pdf_reader.pages[page_num]
-                        text = page.extract_text()
-                        if text:
-                            text_content.append(text)
-                        else:
-                            logger.warning(f"No text extracted from page {page_num + 1} in {file_path}")
-                    except Exception as page_error:
-                        logger.warning(f"Error extracting text from page {page_num + 1} in {file_path}: {str(page_error)}")
-                        continue
-                
-                if not text_content:
-                    logger.warning(f"No text content extracted from {file_path}")
-                    return None
-                
-                return "\n".join(text_content)
+            model_params = {
+                'name': config.model_name,
+                'engine': config.model_type.name.lower(),
+                **config.parameters
+            }
+            
+            # Create model based on type
+            if config.model_type == ModelType.OPENAI:
+                model = self.connection.server.models.create(
+                    **model_params,
+                    api_key=config.parameters.get('api_key'),
+                    model_name=config.parameters.get('engine_name', 'gpt-4')
+                )
+            elif config.model_type == ModelType.ANTHROPIC:
+                model = self.connection.server.models.create(
+                    **model_params,
+                    api_key=config.parameters.get('api_key'),
+                    model_name=config.parameters.get('engine_name', 'claude-2')
+                )
+            elif config.model_type == ModelType.LLAMA:
+                model = self.connection.server.models.create(
+                    **model_params,
+                    model_path=config.parameters.get('model_path')
+                )
+            elif config.model_type == ModelType.CUSTOM:
+                model = self.connection.server.models.create(**model_params)
+            else:
+                raise ValueError(f"Unsupported model type: {config.model_type}")
+
+            logger.info(f"Successfully created model: {config.model_name}")
+            return model
 
         except Exception as e:
-            logger.error(f"Failed to process PDF {file_path}: {str(e)}")
+            logger.error(f"Failed to create model {config.model_name}: {str(e)}")
             return None
 
-    def get_or_create_kb(self, kb_name: str) -> mindsdb_sdk.knowledge_bases.KnowledgeBase:
-        """Get existing knowledge base or create a new one."""
+    def list_models(self) -> List[str]:
+        """List all available models"""
         try:
-            kb = self.server.knowledge_bases.get(kb_name)
-            logger.info(f"Found existing knowledge base: {kb_name}")
-            return kb
-        except Exception:
-            logger.info(f"Creating new knowledge base: {kb_name}")
-            return self.server.knowledge_bases.create(kb_name)
-
-    def prepare_data_for_insertion(self, text: str, file_path: str) -> Dict:
-        """Prepare data in the format expected by MindsDB."""
-        return {
-            'text': text,
-            'metadata': {
-                'source': os.path.basename(file_path),
-                'type': 'pdf'
-            }
-        }
-
-    def load_pdfs_to_kb(self, kb_name: str, data_path: str) -> None:
-        """Load PDF files into the knowledge base."""
-        kb = self.get_or_create_kb(kb_name)
-        pdf_files = glob.glob(os.path.join(data_path, '*.pdf'))
-        
-        if not pdf_files:
-            logger.warning(f"No PDF files found in {data_path}")
-            return
-
-        total_files = len(pdf_files)
-        successful_imports = 0
-
-        for idx, file_path in enumerate(pdf_files, 1):
-            try:
-                logger.info(f"Processing file {idx}/{total_files}: {file_path}")
-                
-                # Extract text content
-                text_content = self.extract_text_from_pdf(file_path)
-                
-                if text_content:
-                    # Prepare data for insertion
-                    data = self.prepare_data_for_insertion(text_content, file_path)
-                    
-                    # Insert into knowledge base
-                    try:
-                        kb.insert_files([file_path])
-                        # kb.insert(data)
-                        successful_imports += 1
-                        logger.info(f"Successfully imported content from {file_path}")
-                    except Exception as insert_error:
-                        logger.error(f"Failed to insert content from {file_path}: {str(insert_error)}")
-                else:
-                    logger.error(f"No valid text content extracted from {file_path}")
-            
-            except Exception as e:
-                logger.error(f"Failed to process {file_path}: {str(e)}", exc_info=True)
-                continue
-
-        logger.info(f"Import complete. Successfully processed {successful_imports}/{total_files} files.")
-
-    def list_knowledge_bases(self) -> List[str]:
-        """List all available knowledge bases."""
-        try:
-            kb_list = self.server.knowledge_bases.list()
-            return [kb.name for kb in kb_list]
+            models = self.connection.server.models.list()
+            return [model.name for model in models]
         except Exception as e:
-            logger.error(f"Failed to list knowledge bases: {str(e)}")
+            logger.error(f"Failed to list models: {str(e)}")
             return []
 
-    def drop_knowledge_base(self, kb_name: str) -> bool:
-        """Drop a knowledge base."""
+    def get_model(self, model_name: str) -> Optional[Any]:
+        """Get model by name"""
         try:
-            self.server.knowledge_bases.drop(kb_name)
-            logger.info(f"Successfully dropped knowledge base: {kb_name}")
+            return self.connection.server.models.get(model_name)
+        except Exception as e:
+            logger.error(f"Failed to get model {model_name}: {str(e)}")
+            return None
+
+    def delete_model(self, model_name: str) -> bool:
+        """Delete model by name"""
+        try:
+            self.connection.server.models.delete(model_name)
+            logger.info(f"Successfully deleted model: {model_name}")
             return True
         except Exception as e:
-            logger.error(f"Failed to drop knowledge base {kb_name}: {str(e)}")
+            logger.error(f"Failed to delete model {model_name}: {str(e)}")
             return False
 
-# Example usage
-try:
-    loader = KnowledgeBaseLoader()
-    
-    # Load PDFs into knowledge base
-    loader.load_pdfs_to_kb('my_kb', './data/')
-    
-    # List all knowledge bases
-    kb_list = loader.list_knowledge_bases()
-    logger.info(f"Available knowledge bases: {kb_list}")
+class AgentManager:
+    """Manage MindsDB agents"""
+    def __init__(self, connection: MindsDBConnection):
+        self.connection = connection
 
-except Exception as e:
-    logger.error(f"Main execution failed: {str(e)}", exc_info=True)
-    sys.exit(1)
+    def create_agent(self, config: AgentConfig) -> Optional[Any]:
+        """
+        Create a new agent with specified configuration
+        
+        Args:
+            config: AgentConfig object containing agent specifications
+            
+        Returns:
+            Created agent object or None if creation fails
+        """
+        try:
+            # Create base agent
+            agent = self.connection.server.agents.create(
+                name=config.agent_name,
+                model_name=config.model_name,
+                description=config.description
+            )
 
+            # Add skills to agent
+            for skill_config in config.skills:
+                skill = self.connection.server.skills.create(
+                    name=skill_config['name'],
+                    type=skill_config['type'],
+                    parameters=skill_config.get('parameters', {})
+                )
+                agent.skills.append(skill)
+
+            # Update agent with skills
+            updated_agent = self.connection.server.agents.update(config.agent_name, agent)
+            logger.info(f"Successfully created agent: {config.agent_name}")
+            return updated_agent
+
+        except Exception as e:
+            logger.error(f"Failed to create agent {config.agent_name}: {str(e)}")
+            return None
+
+    def update_agent(self, 
+                    agent_name: str, 
+                    model_name: str, 
+                    skill_name: str, 
+                    skill_type: str, 
+                    skill_params: Dict) -> bool:
+        """Update existing agent with new model and skill"""
+        try:
+            agent = self.connection.server.agents.get(agent_name)
+            model = self.connection.server.models.get(model_name)
+            agent.model_name = model.name
+            
+            new_skill = self.connection.server.skills.create(
+                skill_name,
+                skill_type,
+                skill_params
+            )
+            agent.skills.append(new_skill)
+            
+            updated_agent = self.connection.server.agents.update(agent_name, agent)
+            logger.info(f"Successfully updated agent: {agent_name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update agent {agent_name}: {str(e)}")
+            return False
+
+    def get_completion(self, agent_name: str, question: str) -> Optional[str]:
+        """Get completion from agent"""
+        try:
+            agent = self.connection.server.agents.get(agent_name)
+            completion = agent.completion([{'question': question, 'answer': None}])
+            return completion.content
+        except Exception as e:
+            logger.error(f"Failed to get completion from agent {agent_name}: {str(e)}")
+            return None
+
+    def list_agents(self) -> List[str]:
+        """List all available agents"""
+        try:
+            agents = self.connection.server.agents.list()
+            return [agent.name for agent in agents]
+        except Exception as e:
+            logger.error(f"Failed to list agents: {str(e)}")
+            return []
+
+    def delete_agent(self, agent_name: str) -> bool:
+        """Delete agent by name"""
+        try:
+            self.connection.server.agents.delete(agent_name)
+            logger.info(f"Successfully deleted agent: {agent_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete agent {agent_name}: {str(e)}")
+            return False
+
+# Initialize connection
+connection = MindsDBConnection()
+
+# Initialize managers
+model_manager = ModelManager(connection)
+agent_manager = AgentManager(connection)
+    
+# Create a new OpenAI model
+model_config = ModelConfig(
+    model_type=ModelType.OPENAI,
+    model_name="my_gpt4_model",
+    parameters={
+        'api_key': 'your-api-key',
+        'engine_name': 'gpt-4',
+        'temperature': 0.7,
+        'max_tokens': 2000
+    }
+)
+model = model_manager.create_model(model_config)
+    
+# Create a new agent with SQL skill
+agent_config = AgentConfig(
+    agent_name="sql_assistant",
+    model_name="my_gpt4_model",
+    description="SQL query assistant powered by GPT-4",
+    skills=[
+        {
+            'name': 'sql_skill',
+            'type': 'sql',
+            'parameters': {
+                'database': 'my_database',
+                'tables': ['users', 'orders']
+            }
+        }
+    ]
+)
+agent = agent_manager.create_agent(agent_config)
+    
+# Get a completion from the agent
+if agent:
+    response = agent_manager.get_completion(
+        "sql_assistant",
+        "Write a query to get all users who placed orders in the last 7 days"
+    )
+    print(f"Agent response: {response}")

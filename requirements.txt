@@ -21,3 +21,4 @@ openai
 together
 llama-stack
 llama-stack-client
+mysql-connector

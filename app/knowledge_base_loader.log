@@ -1,0 +1,4 @@
+2024-11-10 10:51:45,853 - INFO - Successfully connected to MindsDB at http://127.0.0.1:47334
+2024-11-10 10:51:45,954 - INFO - Available knowledge bases: ['my_kb', 'sql_kb']
+2024-11-10 10:51:45,968 - ERROR - Failed to update agent my_agent: NOT FOUND: {"title": "Agent not found", "detail": "Agent with name my_agent does not exist", "timestamp": "2024-11-10 18:51:45.964027"}
+2024-11-10 10:51:45,977 - ERROR - Failed to get completion from agent my_agent: NOT FOUND: {"title": "Agent not found", "detail": "Agent with name my_agent does not exist", "timestamp": "2024-11-10 18:51:45.975519"}

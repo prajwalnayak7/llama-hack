@@ -15,3 +15,7 @@ llama-index-core
 llama-parse
 llama-index-readers-file
 python-dotenv
+sentencepiece
+accelerate
+openai
+together

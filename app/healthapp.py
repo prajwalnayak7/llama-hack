@@ -9,9 +9,16 @@ questions = [
     "What is the patient's name?",
     "What is the patient's age?",
     "What is the patient's condition?",
-    "What symptoms is the patient experiencing?",
-    "What precautions did the doctor advise?",
-    "What drug did the doctor prescribe?"
+    "Can you tell me why you’re here today?"
+    "When did patient's symptoms start, and have they gotten worse?"
+    "How would you rate patient's pain on a scale from 1 to 10?"
+    "Where did patient feel the pain, and does it spread anywhere else?"
+    "Did patient feel any other symptoms like nausea, dizziness, or difficulty breathing?"
+    "Did you have a fever, chills, or a cough recently?"
+    "Is patient allergic to any medications or foods?"
+    "Does patient have any medical conditions, such as diabetes, asthma, or heart problems?"
+    "Is patient taking any medications right now?"
+    "Have patient recently been around anyone who’s sick or has similar symptoms?"
 ]
 
 # Function to process conversation and generate responses

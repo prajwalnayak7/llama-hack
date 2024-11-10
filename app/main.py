@@ -1,9 +1,10 @@
 import streamlit as st
 from together import Together
 import pandas as pd
+import os
 
 # Initialize Together API
-client = Together(api_key="5e44022a52ba3e082d1ffb1932d14e3e259d91dfde97a3d0ae28d7a7c8863a0c")
+client = Together(api_key=os.getenv("TOGETHER_API_KEY"))
 
 
 # Track the conversation history and responses in session state

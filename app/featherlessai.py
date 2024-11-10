@@ -4,7 +4,7 @@ load_dotenv("../.env")
 
 client = OpenAI(
   base_url="https://api.featherless.ai/v1",
-  api_key="rc_0ce91e40e1afbac92573f81b90993136698d308130b17dd054b9093b88992dca",
+  api_key=os.getenv("FEATHERLESS_API_KEY"),
 )
 
 response = client.chat.completions.create(

@@ -1,9 +1,10 @@
 import streamlit as st
 import pandas as pd
 from together import Together
+import os
 # Define the questions to generate responses for
 
-client = Together(api_key ="5e44022a52ba3e082d1ffb1932d14e3e259d91dfde97a3d0ae28d7a7c8863a0c")
+client = Together(api_key=os.getenv("TOGETHER_API_KEY"))
 
 questions = [
     "What is the patient's name?",

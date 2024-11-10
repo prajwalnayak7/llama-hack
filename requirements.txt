@@ -19,3 +19,5 @@ sentencepiece
 accelerate
 openai
 together
+llama-stack
+llama-stack-client
